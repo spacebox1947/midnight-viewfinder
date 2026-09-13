@@ -12,7 +12,7 @@ mod peripherals_io;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex;
+use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
@@ -27,8 +27,13 @@ extern crate alloc;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-static SHARED: Mutex<CriticalSectionRawMutex, InputState> = Mutex::new(InputState::new());
+enum ButtonEvent {
+    Pressed,
+    Held,
+    Cleared,
+}
 
+static BUTTON_SIG: Signal<CriticalSectionRawMutex, ButtonEvent> = Signal::new();
 // ---- ---- ---- [main] ---- ---- ----
 #[allow(
     clippy::large_stack_frames,
@@ -65,10 +70,6 @@ async fn main(spawner: Spawner) -> ! {
     let encoder_b = Input::new(peripherals.GPIO0, input_config);
 
     // ---- ---- [InputConfiguration] ---- ----
-    let buttons = [
-        button::Button::new(&button_left, Duration::from_millis(DEBOUNCE_MS)),
-        //button::Button::new(&button_right, Duration::from_millis(DEBOUNCE_MS)),
-    ];
 
     // ---- ---- [OutputConfiguration] ---- ----
     let led_config = OutputConfig::default().with_pull(Pull::Up);
