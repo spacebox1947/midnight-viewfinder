@@ -140,13 +140,47 @@ async fn encoder_task(mut encoder_a: Input<'static>, encoder_b: Input<'static>) 
 async fn button_struct_task(mut button: button::Button<'static>, mut led: Output<'static>) {
     loop {
         // any button change
-        let mut shared = SHARED.lock().await;
+        let mut button_sig = BUTTON_SIG.lock().await;
         *shared = shared.call(button::input_state.update_state());
 
         info!("Button State updated: ");
 
         // button release
         Timer::after_millis(button.get_debounce().as_millis()).await;
+    }
+}
+
+
+#[embassy_executor::task]
+async fn button_event(mut button_event: ButtonEvent, button: Input<'static>, mut led: Output<'static>) {
+    loop {
+        // wait for any edge on the interrupt
+        button.wait_for_any_edge().await;
+
+        // await a &mut to ButtonEvent
+        // there is no lock on this Signal<CSRMutex, ButtonEvent>
+        let mut button_sig = BUTTON_SIG.lock().await;
+
+        match button.is_high() {
+            true => {
+                match button_sig {
+                    ButtonEvent::Pressed => {
+                        button_sig = ButtonEvent::Held
+                    },
+                    ButtonEvent::Held => {
+                        button_sig = ButtonEvent::Held
+                    },
+                    ButtonEvent::Cleared => {
+                        button_sig = ButtonEvent::Pressed
+                    }
+                }
+            },
+            false => {
+                button_sig = ButtonEvent::Cleared;
+            }
+        }
+
+
     }
 }
 
