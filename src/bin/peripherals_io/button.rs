@@ -1,9 +1,8 @@
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_time::{Duration, Instant};
+use embassy_time::{Duration, Instant, Timer};
 use esp_hal::gpio::Input;
 
-pub struct Button<'a> {
-    pub button: &'a Input<'a>,
+pub struct Button {
+    pub button: Input<'static>,
     debounce: Duration,
     last: Instant,
     held: bool,
@@ -11,8 +10,8 @@ pub struct Button<'a> {
     state: bool,
 }
 
-impl<'a> Button<'a> {
-    pub fn new(button: &'a Input, debounce: Duration) -> Self {
+impl Button {
+    pub fn new(button: Input<'static>, debounce: Duration) -> Self {
         Self {
             button,
             debounce,
@@ -23,7 +22,7 @@ impl<'a> Button<'a> {
         }
     }
 
-    pub fn new_override(button: &'a Input, debounce: Duration, is_high: bool) -> Self {
+    pub fn new_override(button: Input<'static>, debounce: Duration, is_high: bool) -> Self {
         // Potentially useful for hiding the fact you can invert button logic.
         Self {
             button,
@@ -63,16 +62,16 @@ impl<'a> Button<'a> {
         self.state = state;
     }
 
-    pub fn check_button(&mut self) -> bool {
-        CriticalSectionRawMutex
-        self.set_button_state(self.button.is_high());
+    pub async fn wait_for_press(&mut self) {
+        loop {
+            self.button.wait_for_falling_edge().await;
 
-        if self.is_high {
-            self.set_button_state(true);
-            self.button.is_high()
-        } else {
-            self.set_button_state(false);
-            self.button.is_low()
+            Timer::after(self.debounce).await;
+
+            if self.button.is_low() {
+                return;
+            }
         }
+
     }
 }

@@ -21,7 +21,7 @@ use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::timer::timg::TimerGroup;
 use esp_println as _;
 
-use peripherals_io::button;
+use peripherals_io::button::Button;
 
 extern crate alloc;
 
@@ -69,11 +69,8 @@ async fn main(spawner: Spawner) -> ! {
     let encoder_a = Input::new(peripherals.GPIO1, input_config);
     let encoder_b = Input::new(peripherals.GPIO0, input_config);
 
-    // ---- ---- [InputConfiguration] ---- ----
-
     // ---- ---- [OutputConfiguration] ---- ----
     let led_config = OutputConfig::default().with_pull(Pull::Up);
-
     let mut led_left = Output::new(peripherals.GPIO2, Level::Low, led_config);
     let led_right = Output::new(peripherals.GPIO3, Level::Low, led_config);
 
@@ -84,8 +81,13 @@ async fn main(spawner: Spawner) -> ! {
     // - should `panic!` if task cannot spawn
     // TODO: research more
     spawner.spawn(encoder_task(encoder_a, encoder_b).unwrap());
+
+    let mut buttons = [
+        Button::new(button_left, Duration::from_millis(40)),
+    ];
+
     for button in buttons {
-        spawner.spawn(button_struct_task(button, led_left).unwrap());
+        spawner.spawn(button_event(button).unwrap());
     }
     // spawner.spawn(button_task(button_left, led_left).unwrap());
     // spawner.spawn(button_task(button_right, led_right).unwrap());
@@ -96,6 +98,7 @@ async fn main(spawner: Spawner) -> ! {
         Timer::after_secs(1).await;
     }
 }
+
 
 fn clamp(mut x: f32, min: f32, max: f32) -> f32 {
     if x < min {
@@ -119,6 +122,16 @@ fn clamp_usize(mut x: usize, min: usize, max: usize) -> usize {
 // - NOTE: will need some form of PartialEq Trait, most likely.
 
 #[embassy_executor::task]
+async fn button_event(mut button: Button) {
+    button.button.wait_for_falling_edge().await;
+
+    if button.button.is_low() {
+        info!("Button is low!");
+        Timer::after_millis(500).await;
+    }
+}
+
+#[embassy_executor::task]
 async fn encoder_task(mut encoder_a: Input<'static>, encoder_b: Input<'static>) {
     let mut delta: f32 = 0.0;
     loop {
@@ -132,55 +145,7 @@ async fn encoder_task(mut encoder_a: Input<'static>, encoder_b: Input<'static>) 
         delta = clamp(delta, -1.0, 1.0);
 
         info!("Changing Speed! {}", delta);
-        //Timer::after_millis(500).await;
-    }
-}
-
-#[embassy_executor::task]
-async fn button_struct_task(mut button: button::Button<'static>, mut led: Output<'static>) {
-    loop {
-        // any button change
-        let mut button_sig = BUTTON_SIG.lock().await;
-        *shared = shared.call(button::input_state.update_state());
-
-        info!("Button State updated: ");
-
-        // button release
-        Timer::after_millis(button.get_debounce().as_millis()).await;
-    }
-}
-
-
-#[embassy_executor::task]
-async fn button_event(mut button_event: ButtonEvent, button: Input<'static>, mut led: Output<'static>) {
-    loop {
-        // wait for any edge on the interrupt
-        button.wait_for_any_edge().await;
-
-        // await a &mut to ButtonEvent
-        // there is no lock on this Signal<CSRMutex, ButtonEvent>
-        let mut button_sig = BUTTON_SIG.lock().await;
-
-        match button.is_high() {
-            true => {
-                match button_sig {
-                    ButtonEvent::Pressed => {
-                        button_sig = ButtonEvent::Held
-                    },
-                    ButtonEvent::Held => {
-                        button_sig = ButtonEvent::Held
-                    },
-                    ButtonEvent::Cleared => {
-                        button_sig = ButtonEvent::Pressed
-                    }
-                }
-            },
-            false => {
-                button_sig = ButtonEvent::Cleared;
-            }
-        }
-
-
+        Timer::after_millis(500).await;
     }
 }
 
