@@ -20,6 +20,7 @@ use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::timer::timg::TimerGroup;
 use esp_println as _;
+use embassy_futures::select::{select, Either};
 
 use peripherals_io::button::Button;
 
@@ -27,6 +28,7 @@ extern crate alloc;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
+#[derive(PartialEq, Clone, Copy, Debug, defmt::Format)]
 enum ButtonEvent {
     Pressed,
     Held,
@@ -43,8 +45,6 @@ static BUTTON_SIG: Signal<CriticalSectionRawMutex, ButtonEvent> = Signal::new();
 async fn main(spawner: Spawner) -> ! {
     // generator version: 1.3.0
     // generator parameters: --chip esp32c3 -o unstable-hal -o alloc -o wifi -o embassy -o defmt -o esp-backtrace -o neovim -o stable-x86_64-unknown-linux-gnu
-
-    const DEBOUNCE_MS: u64 = 80;
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
@@ -83,7 +83,7 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(encoder_task(encoder_a, encoder_b).unwrap());
 
     let mut buttons = [
-        Button::new(button_left, Duration::from_millis(40)),
+        Button::new(button_left, Duration::from_millis(40), false),
     ];
 
     for button in buttons {
@@ -93,9 +93,15 @@ async fn main(spawner: Spawner) -> ! {
     // spawner.spawn(button_task(button_right, led_right).unwrap());
 
     loop {
-        // TODO: Replace with sane loop
-        // What is convention if all tasks are async, and there's nothing for the loop{}
-        Timer::after_secs(1).await;
+
+        match select(BUTTON_SIG.wait(), Timer::after_secs(5)).await {
+            Either::First(ev) => {
+                info!("Got an event: {}", ev);
+            },
+            Either::Second(()) => {
+                info!("5s with no input");
+            }
+        };
     }
 }
 
@@ -123,11 +129,12 @@ fn clamp_usize(mut x: usize, min: usize, max: usize) -> usize {
 
 #[embassy_executor::task]
 async fn button_event(mut button: Button) {
-    button.button.wait_for_falling_edge().await;
+    loop {
+        button.wait_for_press().await;
+        BUTTON_SIG.signal(ButtonEvent::Pressed);
 
-    if button.button.is_low() {
-        info!("Button is low!");
-        Timer::after_millis(500).await;
+        button.wait_for_release().await;
+        BUTTON_SIG.signal(ButtonEvent::Cleared);
     }
 }
 
