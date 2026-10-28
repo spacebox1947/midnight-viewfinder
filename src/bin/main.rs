@@ -20,9 +20,10 @@ use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::timer::timg::TimerGroup;
 use esp_println as _;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{select3, Either3};
 
 use peripherals_io::button::Button;
+// use peripherals_io::intput_event::InputEvent;
 
 extern crate alloc;
 
@@ -35,7 +36,8 @@ enum ButtonEvent {
     Cleared,
 }
 
-static BUTTON_SIG: Signal<CriticalSectionRawMutex, ButtonEvent> = Signal::new();
+static BUTTON_EVENT_LEFT: Signal<CriticalSectionRawMutex, ButtonEvent> = Signal::new();
+static BUTTON_EVENT_RIGHT: Signal<CriticalSectionRawMutex, ButtonEvent> = Signal::new();
 // ---- ---- ---- [main] ---- ---- ----
 #[allow(
     clippy::large_stack_frames,
@@ -69,11 +71,14 @@ async fn main(spawner: Spawner) -> ! {
     let encoder_a = Input::new(peripherals.GPIO1, input_config);
     let encoder_b = Input::new(peripherals.GPIO0, input_config);
 
+    // give Button its input and debounc bindings
+    let left = Button::new(button_left, Duration::from_millis(40), false);
+    let right = Button::new(button_right, Duration::from_millis(40), false);
+
     // ---- ---- [OutputConfiguration] ---- ----
     let led_config = OutputConfig::default().with_pull(Pull::Up);
     let mut led_left = Output::new(peripherals.GPIO2, Level::Low, led_config);
     let led_right = Output::new(peripherals.GPIO3, Level::Low, led_config);
-
     led_left.set_low();
 
     // spawner.spawn():
@@ -81,24 +86,21 @@ async fn main(spawner: Spawner) -> ! {
     // - should `panic!` if task cannot spawn
     // TODO: research more
     spawner.spawn(encoder_task(encoder_a, encoder_b).unwrap());
+    // button inputs
+    spawner.spawn(button_event(left, &BUTTON_EVENT_LEFT).unwrap());
+    spawner.spawn(button_event(right, &BUTTON_EVENT_RIGHT).unwrap());
 
-    let mut buttons = [
-        Button::new(button_left, Duration::from_millis(40), false),
-    ];
-
-    for button in buttons {
-        spawner.spawn(button_event(button).unwrap());
-    }
-    // spawner.spawn(button_task(button_left, led_left).unwrap());
-    // spawner.spawn(button_task(button_right, led_right).unwrap());
 
     loop {
-
-        match select(BUTTON_SIG.wait(), Timer::after_secs(5)).await {
-            Either::First(ev) => {
-                info!("Got an event: {}", ev);
+        // embassy::select chooses one of two signals with with a callback.
+        match select3(BUTTON_EVENT_LEFT.wait(), BUTTON_EVENT_RIGHT.wait(), Timer::after_secs(5)).await {
+            Either3::First(ev) => {
+                info!("Got 1st event: {}", ev);
             },
-            Either::Second(()) => {
+            Either3::Second(ev) => {
+                info!("Got 2nd event: {}", ev);
+            },
+            Either3::Third(()) => {
                 info!("5s with no input");
             }
         };
@@ -126,15 +128,14 @@ fn clamp_usize(mut x: usize, min: usize, max: usize) -> usize {
 
 // TODO: Impliment generic clamp<T> for usize or f32, or whatever I want it for
 // - NOTE: will need some form of PartialEq Trait, most likely.
-
 #[embassy_executor::task]
-async fn button_event(mut button: Button) {
+async fn button_event(mut button: Button, event: &'static Signal<CriticalSectionRawMutex, ButtonEvent>) {
     loop {
         button.wait_for_press().await;
-        BUTTON_SIG.signal(ButtonEvent::Pressed);
+        event.signal(ButtonEvent::Pressed);
 
         button.wait_for_release().await;
-        BUTTON_SIG.signal(ButtonEvent::Cleared);
+        event.signal(ButtonEvent::Cleared);
     }
 }
 
