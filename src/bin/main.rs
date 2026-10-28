@@ -63,9 +63,39 @@ async fn main(spawner: Spawner) -> ! {
 
     info!("Embassy initialized!");
 
+    // ---- ---- [WiFi] ---- ----
+    // TODO(env-config) checklist
+    //
+    // Stage 2: real .env file
+    // [ ] Add build.rs that reads .env and emits cargo:rustc-env=KEY=VALUE
+    // [ ] Add cargo:rerun-if-changed=.env so edits trigger a rebuild
+    // [ ] Decide: hand-rolled parser vs dotenvy as a build-dependency
+    // [ ] Add .env to .gitignore, commit a .env.example
+    //
+    // Stage 3: missing values
+    // [ ] Switch to option_env! and handle None (default, or a clear panic message)
+    //
+    // Stage 4: wiring into WiFi
+    // [ ] Convert SSID/PASSWORD &str into the types esp-wifi's config expects
+    //     (heapless::String or similar; check for length limits: SSID 32, WPA2 password 63)
+    // [ ] Pass the config to the embassy-net / esp-wifi controller
+    //
+    // Stage 5: typed config
+    // [ ] Read the esp-config crate docs and decide whether it replaces the hand-rolled approach 
+    
+    // defined in .cargo/cargo.toml
+    const SSID: &str = env!("SSID");
+    const PASSWORD: &str = env!("PASSWORD");
+    // will not compile / var not defined at compile time
+    // const WRONG: &str = env!("WRONG");
+
     let (mut _wifi_controller, _interfaces) =
         esp_radio::wifi::new(peripherals.WIFI, Default::default())
             .expect("Failed to initialize Wi-Fi controller");
+    // log WiFi info
+    // TODO: remove password log
+    info!("SSID: {}", &SSID);
+    info!("PASSWORD: {}", &PASSWORD);
 
     // ---- ---- [InputConfiguration] ---- ----
     let input_config = InputConfig::default().with_pull(Pull::Up);
