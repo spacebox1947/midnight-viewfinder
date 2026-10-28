@@ -29,6 +29,7 @@ extern crate alloc;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
+// REMOVE???
 #[derive(PartialEq, Clone, Copy, Debug, defmt::Format)]
 enum ButtonEvent {
     Pressed,
@@ -36,8 +37,10 @@ enum ButtonEvent {
     Cleared,
 }
 
+// ---- ---- ---- [events] ---- ---- ----
 static BUTTON_EVENT_LEFT: Signal<CriticalSectionRawMutex, ButtonEvent> = Signal::new();
 static BUTTON_EVENT_RIGHT: Signal<CriticalSectionRawMutex, ButtonEvent> = Signal::new();
+
 // ---- ---- ---- [main] ---- ---- ----
 #[allow(
     clippy::large_stack_frames,
@@ -71,12 +74,13 @@ async fn main(spawner: Spawner) -> ! {
     let encoder_a = Input::new(peripherals.GPIO1, input_config);
     let encoder_b = Input::new(peripherals.GPIO0, input_config);
 
-    // give Button its input and debounc bindings
+    // give Button its input and debounce bindings
     let left = Button::new(button_left, Duration::from_millis(40), false);
     let right = Button::new(button_right, Duration::from_millis(40), false);
 
     // ---- ---- [OutputConfiguration] ---- ----
     let led_config = OutputConfig::default().with_pull(Pull::Up);
+
     let mut led_left = Output::new(peripherals.GPIO2, Level::Low, led_config);
     let led_right = Output::new(peripherals.GPIO3, Level::Low, led_config);
     led_left.set_low();
@@ -84,12 +88,10 @@ async fn main(spawner: Spawner) -> ! {
     // spawner.spawn():
     // - unwrap is okay
     // - should `panic!` if task cannot spawn
-    // TODO: research more
     spawner.spawn(encoder_task(encoder_a, encoder_b).unwrap());
     // button inputs
     spawner.spawn(button_event(left, &BUTTON_EVENT_LEFT).unwrap());
     spawner.spawn(button_event(right, &BUTTON_EVENT_RIGHT).unwrap());
-
 
     loop {
         // embassy::select chooses one of two signals with with a callback.
